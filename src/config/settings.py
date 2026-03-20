@@ -3,6 +3,15 @@ Centralized settings via Pydantic BaseSettings.
 
 All values are loaded from environment variables or .env file.
 No secrets are ever hardcoded.
+
+Sections:
+  - Application       general runtime config
+  - Model             inference / checkpoint config
+  - Database          PostgreSQL + Redis
+  - Training          hyperparameters
+  - A/B Testing       traffic split per segment
+  - Monitoring        Prometheus + tracing
+  - Security / LGPD   PII, consent, retention, anonymization
 """
 from __future__ import annotations
 
@@ -40,6 +49,7 @@ class Settings(BaseSettings):
     Validation Metrics:
         - All path fields must exist when app_env != development.
         - max_seq_length must be power of 2 and <= 2048.
+        - ab_challenger_traffic must be in [0.0, 0.5].
     """
 
     model_config = SettingsConfigDict(
@@ -49,25 +59,28 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Application
+    # ── Application ──────────────────────────────────────────────────────────
     app_env: Environment = Environment.development
     app_secret_key: str = "change-me"
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
-    # Model
+    # ── Model ─────────────────────────────────────────────────────────────────
     model_name: str = "microsoft/deberta-v3-large"
     model_path: Path = Path("./artifacts/models/preference_model")
     max_seq_length: int = 1024
     inference_batch_size: int = 16
     device: str = "cpu"
+    # Challenger model for A/B testing (empty = disabled)
+    challenger_model_path: Path = Path("")
 
-    # Database
+    # ── Database ──────────────────────────────────────────────────────────────
     database_url: str = "postgresql+asyncpg://chatcielo:chatcielo@localhost:5432/chatcielo"
     redis_url: str = "redis://localhost:6379/0"
+    redis_cache_ttl: int = 3600           # seconds
 
-    # Training
+    # ── Training ──────────────────────────────────────────────────────────────
     train_data_path: Path = Path("./data/train.parquet")
     val_data_path: Path = Path("./data/val.parquet")
     output_dir: Path = Path("./artifacts/models")
@@ -75,12 +88,24 @@ class Settings(BaseSettings):
     learning_rate: float = 1e-5
     batch_size: int = 8
     gradient_accumulation_steps: int = 4
+    warmup_ratio: float = 0.1
+    label_smoothing: float = 0.1
+    cls_loss_weight: float = 0.7          # combined loss: 0.7·cls + 0.3·rank
+    early_stopping_patience: int = 2
 
-    # Monitoring
+    # ── A/B Testing ───────────────────────────────────────────────────────────
+    # Fraction of traffic routed to challenger model (0.0 = disabled)
+    ab_challenger_traffic: float = Field(default=0.0, ge=0.0, le=0.5)
+    # Redis key where A/B assignment is stored per conversation_id
+    ab_redis_prefix: str = "chatcielo:ab:"
+
+    # ── Monitoring ────────────────────────────────────────────────────────────
     prometheus_port: int = 9090
     enable_tracing: bool = False
+    # PSI threshold above which drift is flagged and retraining triggered
+    drift_psi_threshold: float = 0.2
 
-    # Security / LGPD
+    # ── Security / LGPD ───────────────────────────────────────────────────────
     pii_audit_enabled: bool = True
     data_retention_days: int = 90
     consent_required: bool = True
