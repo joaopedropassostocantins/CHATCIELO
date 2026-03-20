@@ -95,6 +95,8 @@ CHATCIELO/
 ├── requirements.txt
 └── CLAUDE.md
 
+---
+
 ## 🏛️ 2. Arquitetura TécnicaA arquitetura foi desenhada para altíssima disponibilidade (latência P99 < 300ms) e conformidade rigorosa com a LGPD.Plaintext
 
 ```text
