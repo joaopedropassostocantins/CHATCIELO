@@ -235,16 +235,18 @@ class Trainer:
             self.state.val_metrics.append(val_metrics)
             self._save_checkpoint("latest")
 
-            val_auc = val_metrics.get("auc", 0.0)
-            if val_auc > self.state.best_val_auc:
-                self.state.best_val_auc = val_auc
-                self.state.no_improve_count = 0
-                self._save_checkpoint("best")
-                print(f"  ✓ New best AUC: {val_auc:.4f} — checkpoint saved.")
-            else:
-                self.state.no_improve_count += 1
-                if self.state.no_improve_count >= self.patience:
-                    print(f"  Early stopping after {epoch+1} epochs.")
-                    break
+            # Early stopping only applies when a validation loader is present
+            if self.val_loader is not None:
+                val_auc = val_metrics.get("auc", 0.0)
+                if val_auc > self.state.best_val_auc:
+                    self.state.best_val_auc = val_auc
+                    self.state.no_improve_count = 0
+                    self._save_checkpoint("best")
+                    print(f"  ✓ New best AUC: {val_auc:.4f} — checkpoint saved.")
+                else:
+                    self.state.no_improve_count += 1
+                    if self.state.no_improve_count >= self.patience:
+                        print(f"  Early stopping after {epoch+1} epochs.")
+                        break
 
         return self.state
