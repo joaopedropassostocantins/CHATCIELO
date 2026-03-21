@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+
+# Env & secrets
+.env
+*.local
+
+# Artifacts & model weights
+artifacts/
+*.pt
+*.bin
+*.onnx
+
+# Logs & outputs
+logs/
+outputs/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
