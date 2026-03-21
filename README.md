@@ -7,10 +7,9 @@ Este projeto implementa um modelo de **Pairwise Preference Ranking** (inspirado 
 ---
 
 ## 🏗️ 1. Árvore de Diretórios
-
+```text
 O projeto segue padrões estritos de MLOps, separando responsabilidades entre engenharia de dados, treinamento, inferência e API.
 
-```text
 CHATCIELO/
 ├── src/
 │   ├── config/
@@ -95,11 +94,11 @@ CHATCIELO/
 ├── requirements.txt
 └── CLAUDE.md
 
----
+```
 
 ## 🏛️ 2. Arquitetura TécnicaA arquitetura foi desenhada para altíssima disponibilidade (latência P99 < 300ms) e conformidade rigorosa com a LGPD.Plaintext
 
-```text
+```
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                        CHATCIELO — SYSTEM ARCHITECTURE                       ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -194,5 +193,9 @@ CHATCIELO/
 │  Drift detection: PSI no distribution de scores a cada 24h                  │
 │  Métricas: Prometheus → Grafana (accuracy, P99 latency, PII leak count=0)   │
 └─────────────────────────────────────────────────────────────────────────────┘
-
-## 🛠️ 3. Stack de TecnologiasCamadaTecnologiaJustificativaAPIFastAPI + uvicornASGI assíncrono, ideal para manter a latência < 300ms.Cache & FilasRedis 7Sub-ms lookup, TTL nativo e suporte a streams para o feedback loop.Banco de DadosPostgreSQL 15Retenção do histórico de conversas e audit log (LGPD) em schema tipado.ML RuntimePyTorch 2.2 + TransformersSuporte nativo ao DeBERTa-v3 com aceleração via CUDA/MPS/CPU.ContainerizaçãoDocker + ComposeBuild isolado multi-stage, garantindo imagens leves (slim) para produção.ObservabilityPrometheus + GrafanaRastreio de latência P99 e contadores críticos de segurança (PII leak = 0).StreamingRedis StreamsIngestão leve de feedback. Pode ser escalado para Kafka se > 10k req/s.
+````
+## 🛠️ 3. Stack de Tecnologias
+```
+CamadaTecnologiaJustificativaAPIFastAPI + uvicornASGI assíncrono, ideal para manter a latência < 300ms.Cache & FilasRedis 7Sub-ms lookup, TTL nativo e suporte a streams para o feedback loop.Banco de DadosPostgreSQL 15Retenção do histórico de conversas e audit log (LGPD) em schema tipado.ML RuntimePyTorch 2.2 + TransformersSuporte nativo ao DeBERTa-v3 com aceleração via CUDA/MPS/CPU.ContainerizaçãoDocker + ComposeBuild isolado multi-stage, garantindo imagens leves (slim) para produção.ObservabilityPrometheus + GrafanaRastreio de latência P99 e contadores críticos de segurança (PII leak = 0).StreamingRedis StreamsIngestão leve de feedback. Pode ser escalado para Kafka se > 10k req/s.
+```
+## LICENÇA MIT
