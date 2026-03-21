@@ -56,7 +56,7 @@ def compute_metrics(
     except ValueError:
         auc = 0.0
 
-    ll = float(log_loss(labels, probabilities))
+    ll = float(log_loss(labels, probabilities, labels=[0, 1, 2]))
 
     # Mean confidence (max probability per row) — proxy for model certainty
     pref_score_mean = float(probabilities.max(axis=1).mean())
