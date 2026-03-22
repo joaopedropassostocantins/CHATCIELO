@@ -1,128 +1,215 @@
-# CHATCIELO - Core Adaptativo de Preferência
+# 🏀 CHATCIELO - Core Adaptativo de Preferência
 
-## 1. Visão Geral do Projeto
+**Pipeline de Machine Learning para Personalização de LLMs com Ranking de Preferência e Conformidade LGPD**
 
-O CHATCIELO é um sistema de Machine Learning de missão crítica, desenvolvido para a Cielo Brasil, que emprega um modelo avançado de **Pairwise Preference Ranking**. Inspirado nas abordagens de ponta da competição Kaggle LMSYS, este sistema visa personalizar e otimizar as interações com lojistas, adaptando as respostas de Large Language Models (LLMs) com base no perfil específico do usuário (MEI, Varejo, Corporate). O objetivo primordial é proporcionar uma experiência conversacional de alta conversão, minimizando o *churn* e maximizando a satisfação do cliente.
+[![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.2%2B-orange)](https://pytorch.org/)
+[![HuggingFace Transformers](https://img.shields.io/badge/Transformers-4.x%2B-red)](https://huggingface.co/docs/transformers/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688)](https://fastapi.tiangolo.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Este projeto se destaca pela sua aderência a rigorosos padrões de MLOps, garantindo a separação clara de responsabilidades entre engenharia de dados, treinamento de modelos, inferência em produção e a exposição via API. A arquitetura foi concebida para assegurar altíssima disponibilidade, com uma latência P99 inferior a 300 milissegundos, e conformidade estrita com a Lei Geral de Proteção de Dados (LGPD).
+---
 
-## 2. Arquitetura do Sistema
+## 📋 Sobre o Projeto
 
-A arquitetura do CHATCIELO é organizada em camadas distintas, projetadas para otimizar o desempenho, a escalabilidade e a manutenibilidade do sistema.
+**CHATCIELO** é um sistema de Machine Learning de missão crítica, desenvolvido para a Cielo Brasil, que implementa um modelo de **Pairwise Preference Ranking** para personalizar o atendimento a lojistas. Inspirado nas abordagens *state-of-the-art* da competição Kaggle LMSYS, este pipeline adapta as respostas de Large Language Models (LLMs) com base no perfil do usuário (MEI, Varejo, Corporate), visando uma experiência conversacional de alta conversão e baixo *churn*.
 
-### 2.1. Camada de Entrada
+O projeto adere a rigorosos padrões de MLOps, garantindo alta disponibilidade (latência P99 < 300ms) e conformidade estrita com a Lei Geral de Proteção de Dados (LGPD) através de mecanismos robustos de *scrubbing* de PII e auditoria.
 
-Esta camada compreende os diversos canais pelos quais os usuários interagem com o sistema, incluindo Web Chat (desenvolvido com Next.js), WhatsApp (via 360dialog) e aplicativos móveis (React Native). Todas as requisições são roteadas através de um API Gateway (nginx), que atua como ponto de entrada unificado, garantindo segurança e balanceamento de carga.
+### 🎯 Principais Características
 
-### 2.2. Camada de Serviço (Serving Layer)
+*   ✅ **Modelo de Preferência Híbrido** — Cross-encoder DeBERTa-v3 com fusão de *features* auxiliares (segmento do lojista, características das respostas).
+*   📊 **Função de Perda Combinada** — Otimização conjunta de *Label Smoothing Cross-Entropy* e *Margin Ranking Loss* para classificação e ordenação de preferências.
+*   🔒 **Conformidade LGPD** — *Scrubbing* de PII em tempo real e pseudonimização unidirecional para dados sensíveis.
+*   ⚡ **API de Baixa Latência** — Implementação com FastAPI e Uvicorn, suportada por cache Redis para inferência sub-300ms.
+*   🔄 **Ciclo de Feedback Contínuo** — Detecção de *drift* de modelo via Redis Streams e retreinamento automatizado.
+*   🧪 **Testes Abrangentes** — Suíte de testes unitários, de integração, de ML, de segurança (LGPD) e de *benchmarks* de latência.
+*   🐳 **Containerização** — Imagens Docker otimizadas para implantação em produção.
 
-Implementada com **FastAPI** e **Uvicorn**, esta camada é responsável por orquestrar a inferência do modelo em produção. Ela é projetada para ser *stateless* e de alta performance, visando a meta de latência P99 < 300ms. As principais funcionalidades incluem:
+---
 
-*   **Endpoints de Preferência**: `POST /preference` e `POST /preference/batch` para obter as predições do modelo.
-*   **Cache de Resultados**: Utiliza **Redis** para armazenar resultados de inferência, reduzindo a latência para requisições repetidas. O cache possui um Time-To-Live (TTL) configurável de 1 hora.
-*   **Scrubbing de PII**: Realiza a remoção de informações de identificação pessoal (PII) dos *prompts* e respostas antes do processamento pelo modelo, garantindo a conformidade com a LGPD.
-*   **Endpoints de Monitoramento**: `GET /health` para verificações de liveness e readiness, e `GET /metrics` para exposição de métricas Prometheus.
-*   **Feedback Loop**: `POST /feedback` para ingestão de feedback do usuário em um stream Redis, alimentando o ciclo de retreinamento contínuo.
+## 🏗️ Estrutura do Projeto
 
-### 2.3. Camada de Modelo (Model Layer)
-
-O cerne da inteligência do CHATCIELO reside no `PreferenceModel`, um **cross-encoder DeBERTa-v3-large** que incorpora uma `AuxFusionHead`. Este cabeçote de fusão tardia combina o *embedding* CLS do encoder com um vetor de 12 dimensões de *features* auxiliares, que incluem características estruturais das respostas (comprimento, média de palavras por frase, Type-Token Ratio), métricas de comparação entre respostas (delta de comprimento, similaridade Jaccard, delta de sentenças) e um *one-hot encoding* do segmento do lojista (MEI, Varejo, Corporate). Esta abordagem híbrida permite ao modelo considerar tanto o contexto textual quanto informações estruturadas do usuário para uma tomada de decisão mais precisa. Os modelos treinados são versionados e armazenados em um Model Registry (`artifacts/models/`).
-
-### 2.4. Pipeline de Treinamento (Training Pipeline)
-
-Este pipeline automatiza todo o processo de desenvolvimento e atualização do modelo, desde a ingestão de dados brutos até a disponibilização de novos *checkpoints*:
-
-1.  **Validação de Dados**: O script `scripts/validate_dataset.py` garante a integridade e consistência dos dados de entrada, bloqueando o pipeline em caso de falhas.
-2.  **Preparação de Dados**: `src/data/dataset.py` realiza o scrubbing de PII, tokenização e a criação do `ChatCieloDataset`, que organiza os dados em triplas (prompt, response_a, response_b) com condicionamento de segmento.
-3.  **Engenharia de Features**: `src/features/feature_engineering.py` calcula as 12 *features* auxiliares que são injetadas no modelo.
-4.  **Treinamento do Modelo**: `src/training/trainer.py` orquestra o loop de treinamento, utilizando otimizadores como AdamW, *learning rate schedules* (CosineAnnealingWarmup), acumulação de gradientes, *early stopping* baseado em AUC de validação e salvamento de *checkpoints* (`best.pt`, `latest.pt`). A função de perda combinada (`CombinedPreferenceLoss`) otimiza tanto a classificação quanto o ranking.
-5.  **Avaliação**: `src/evaluation/evaluate.py` calcula métricas como AUC, Accuracy, Log-loss e ECE, com critérios de aceitação para o salvamento do melhor modelo.
-
-### 2.5. Ciclo de Feedback e Monitoramento
-
-Para garantir a adaptabilidade e a robustez do modelo em produção, o CHATCIELO incorpora um ciclo de feedback contínuo e um sistema de monitoramento abrangente:
-
-*   **Feedback Loop**: O feedback dos usuários é ingerido via um stream **Redis** (`chatcielo:feedback`). Um *consumer worker* (`scripts/retrain_trigger.py`) monitora este stream para detectar *drift* na distribuição dos dados (e.g., PSI > 0.2) ou degradação da AUC, disparando automaticamente um novo ciclo do pipeline de treinamento.
-*   **A/B Testing**: Suporta testes A/B com *feature flags* por segmento de lojista, permitindo a avaliação de modelos desafiantes em produção.
-*   **Monitoramento**: **Prometheus** e **Grafana** são utilizados para rastrear métricas críticas, incluindo latência P99, acurácia do modelo e contagem de vazamentos de PII (com meta de zero).
-
-## 3. Stack de Tecnologias
-
-A tabela a seguir detalha as principais tecnologias empregadas no desenvolvimento do CHATCIELO e suas respectivas justificativas:
-
-| Camada / Componente | Tecnologia | Justificativa |
-| :------------------ | :--------- | :------------ |
-| API                 | FastAPI + Uvicorn | Framework ASGI assíncrono, ideal para manter a latência de inferência abaixo de 300ms. |
-| Cache & Filas       | Redis 7    | Oferece *lookup* em sub-milissegundos, TTL nativo para cache e suporte a *streams* para o *feedback loop*. |
-| Banco de Dados      | PostgreSQL 15 | Utilizado para retenção do histórico de conversas e *audit logs* (LGPD) em um esquema tipado e robusto. |
-| ML Runtime          | PyTorch 2.2 + Transformers | Suporte nativo ao DeBERTa-v3 com aceleração via CUDA/MPS/CPU, otimizado para modelos de *deep learning*. |
-| Containerização     | Docker + Docker Compose | Permite *builds* isolados e multi-stage, garantindo imagens leves e portáveis para produção. |
-| Observabilidade     | Prometheus + Grafana | Ferramentas padrão da indústria para rastreamento de latência P99, métricas de modelo e contadores críticos de segurança (e.g., PII leak = 0). |
-| Streaming           | Redis Streams | Solução leve para ingestão de feedback, escalável para Kafka em cenários de alta vazão (> 10k req/s). |
-
-## 4. Estrutura de Diretórios
-
-A organização do projeto segue um padrão rigoroso de MLOps, com responsabilidades bem definidas para cada diretório:
+A organização do projeto segue um padrão rigoroso de MLOps, com responsabilidades bem definidas para cada diretório, facilitando a manutenção e escalabilidade:
 
 ```
 CHATCIELO/
-├── src/                          # Código-fonte principal da aplicação
-│   ├── config/                   # Configurações globais (Pydantic BaseSettings)
-│   ├── data/                     # Módulos de processamento de dados (PII scrubbing, dataset)
-│   ├── features/                 # Engenharia de features auxiliares e embeddings
-│   ├── models/                   # Definição do PreferenceModel (DeBERTa-v3 + AuxFusionHead)
-│   ├── training/                 # Lógica de treinamento (loop, otimizadores, perdas)
-│   ├── inference/                # Motor de inferência em produção (Predictor, cache)
-│   ├── evaluation/               # Módulos de avaliação de métricas e CLI
-│   └── api/                      # API FastAPI (endpoints, middleware, schemas)
-├── tests/                        # Suíte de testes (unitários, integração, ML, segurança, benchmarks)
-├── scripts/                      # Scripts utilitários (LGPD audit, validação de dataset)
-├── notebooks/                    # Notebooks de exploração de dados e prototipagem
-├── docker/                       # Definições Docker (Dockerfile, docker-compose.yml)
-├── intents/                      # Definições de domínios de intenção (e.g., Jurídico/LGPD)
-├── artifacts/                    # Artefatos gerados (modelos treinados, gitignored)
-├── data/                         # Dados de treinamento e validação (gitignored)
-├── .env.example                  # Exemplo de arquivo de variáveis de ambiente
-├── .pre-commit-config.yaml       # Configurações para hooks de pre-commit
-├── pyproject.toml                # Configurações de projeto (Poetry/PEP 621)
-├── requirements.txt              # Dependências do projeto
-└── CLAUDE.md                     # Documentação específica do modelo CLAUDE (se aplicável)
+├── src/                           # Código-fonte principal da aplicação
+│   ├── config/                    # Configurações globais (Pydantic BaseSettings)
+│   ├── data/                      # Módulos de processamento de dados (PII scrubbing, dataset)
+│   ├── features/                  # Engenharia de features auxiliares e embeddings
+│   ├── models/                    # Definição do PreferenceModel (DeBERTa-v3 + AuxFusionHead)
+│   ├── training/                  # Lógica de treinamento (loop, otimizadores, perdas)
+│   ├── inference/                 # Motor de inferência em produção (Predictor, cache)
+│   ├── evaluation/                # Módulos de avaliação de métricas e CLI
+│   └── api/                       # API FastAPI (endpoints, middleware, schemas)
+├── tests/                         # Suíte de testes (unitários, integração, ML, segurança, benchmarks)
+├── scripts/                       # Scripts utilitários (LGPD audit, validação de dataset)
+├── notebooks/                     # Notebooks de exploração de dados e prototipagem
+├── docker/                        # Definições Docker (Dockerfile, docker-compose.yml)
+├── intents/                       # Definições de domínios de intenção (e.g., Jurídico/LGPD)
+├── artifacts/                     # Artefatos gerados (modelos treinados, gitignored)
+├── data/                          # Dados de treinamento e validação (gitignored)
+├── .env.example                   # Exemplo de arquivo de variáveis de ambiente
+├── .pre-commit-config.yaml        # Configurações para hooks de pre-commit
+├── pyproject.toml                 # Configurações de projeto (Poetry/PEP 621)
+├── requirements.txt               # Dependências do projeto
+└── AUDITORIA_TECNICA.md           # Relatório de auditoria técnica detalhada
 ```
 
-## 5. Instalação e Uso
+---
 
-Para configurar e executar o projeto localmente, siga os passos abaixo:
+## 🚀 Quick Start
 
-1.  **Pré-requisitos**: Certifique-se de ter Docker e Docker Compose instalados.
-2.  **Clonar o Repositório**:
-    ```bash
-    git clone https://github.com/seu-usuario/CHATCIELO.git
-    cd CHATCIELO
-    ```
-3.  **Configurar Variáveis de Ambiente**: Crie um arquivo `.env` na raiz do projeto, baseado no `.env.example`, e preencha com as configurações necessárias.
-4.  **Construir e Iniciar os Serviços**: Utilize Docker Compose para levantar a API, Redis, PostgreSQL, Prometheus e Grafana.
-    ```bash
-    docker-compose up --build -d
-    ```
-5.  **Treinar o Modelo (Opcional)**: Para treinar um novo modelo, execute o script de treinamento. Certifique-se de ter os dados de treinamento (`data/train.parquet`) disponíveis.
-    ```bash
-    python -m src.training.train
-    ```
-6.  **Acessar a API**: A API estará disponível em `http://localhost:8000`. A documentação interativa (Swagger UI) pode ser acessada em `http://localhost:8000/docs`.
+### Instalação
 
-## 6. Conformidade e Segurança (LGPD)
+Para configurar o ambiente de desenvolvimento e executar o projeto localmente, siga os passos abaixo:
 
-O CHATCIELO foi projetado com a LGPD em mente, implementando medidas robustas para a proteção de dados pessoais. Isso inclui:
+```bash
+git clone https://github.com/joaopedropassostocantins/CHATCIELO.git # Assumindo que o repositório está aqui
+cd CHATCIELO
+pip install -r requirements.txt
+```
 
-*   **Scrubbing de PII**: Todas as entradas e saídas de texto são processadas para remover ou anonimizar PII antes do armazenamento ou processamento pelo modelo.
-*   **Auditoria de PII**: Scripts de auditoria (`scripts/lgpd_audit.py`) varrem logs e saídas para garantir a ausência de PII.
-*   **Retenção de Dados**: Políticas de retenção de dados são aplicadas para limitar o período de armazenamento de informações.
-*   **Testes de Segurança**: Uma suíte de testes dedicada verifica a conformidade com as diretrizes de LGPD, incluindo a ausência de PII em logs e respostas da API.
+### Configuração de Variáveis de Ambiente
 
-## 7. Contribuição
+Crie um arquivo `.env` na raiz do projeto, baseado no `.env.example`, e preencha com as configurações necessárias para o ambiente (e.g., `REDIS_URL`, `DATABASE_URL`, `APP_SECRET_KEY`).
 
-Contribuições são bem-vindas! Por favor, consulte as diretrizes de contribuição (CONTRIBUTING.md, a ser criado) para mais detalhes sobre como propor melhorias, reportar bugs ou submeter *pull requests*.
+### Executar Serviços com Docker Compose
 
-## 8. Licença
+Utilize Docker Compose para levantar a API, Redis, PostgreSQL, Prometheus e Grafana:
 
-Este projeto está licenciado sob a **LICENÇA MIT**.
+```bash
+docker-compose -f docker/docker-compose.yml up --build -d
+```
+
+### Treinar o Modelo (Opcional)
+
+Para treinar um novo modelo, execute o script de treinamento. Certifique-se de ter os dados de treinamento (`data/train.parquet`) disponíveis:
+
+```bash
+python -m src.training.train
+```
+
+### Acessar a API
+
+A API estará disponível em `http://localhost:8000`. A documentação interativa (Swagger UI) pode ser acessada em `http://localhost:8000/docs`.
+
+---
+
+## 📊 Metodologia Técnica
+
+### 1. **Engenharia de Features**
+
+O sistema emprega um conjunto de 12 *features* auxiliares, calculadas em `src/features/feature_engineering.py`, para enriquecer a representação textual e contextual. Estas *features* são categorizadas em:
+
+*   **Features Estruturais por Resposta**: Comprimento do texto, média de palavras por frase (proxy de formalidade) e *Type-Token Ratio* (diversidade lexical) para cada resposta candidata.
+*   **Features Comparativas**: Delta de comprimento entre as respostas, similaridade Jaccard (sobreposição lexical) e delta de média de palavras por frase.
+*   **Segmento do Lojista**: Representação *one-hot encoded* do segmento do lojista (MEI, Varejo, Corporate), injetando informações cruciais sobre o perfil do usuário.
+
+### 2. **Modelagem de Preferência**
+
+O coração do CHATCIELO é o `PreferenceModel`, um *cross-encoder* baseado em **DeBERTa-v3-large**. Este modelo é otimizado para a tarefa de *pairwise preference ranking* através de uma `AuxFusionHead` que concatena o *pooler output* do DeBERTa com as *features* auxiliares. A saída do modelo são probabilidades para três classes: A vence, B vence, ou empate ($P(A \text{ wins}), P(B \text{ wins}), P(\text{tie})$).
+
+### 3. **Função de Perda**
+
+Para otimizar o modelo, utiliza-se uma `CombinedPreferenceLoss`, que é uma combinação ponderada de duas funções de perda:
+
+*   **Label Smoothing Cross-Entropy**: Previne o *overfitting* e melhora a generalização, suavizando os rótulos verdadeiros com um fator $\epsilon$.
+*   **Margin Ranking Loss**: Reforça a ordem de preferência entre as respostas A e B, excluindo casos de empate, garantindo que o modelo aprenda a distinguir entre as opções preferidas.
+
+### 4. **Validação e Monitoramento**
+
+A validação do modelo é realizada através de métricas como AUC, Accuracy, Log-loss e ECE (Expected Calibration Error). O sistema incorpora um robusto *feedback loop* com detecção de *drift* de dados (PSI - Population Stability Index) e degradação de performance (e.g., queda na AUC), que dispara automaticamente o retreinamento do modelo. O monitoramento contínuo é feito via Prometheus e Grafana, rastreando latência P99, acurácia e, criticamente, a contagem de vazamentos de PII (com meta de zero).
+
+---
+
+## 📚 Stack Tecnológico
+
+A tabela a seguir detalha as principais tecnologias empregadas no desenvolvimento do CHATCIELO e suas respectivas justificativas técnicas:
+
+| Camada / Componente | Tecnologia | Versão | Propósito |
+| :------------------ | :--------- | :----- | :-------- |
+| **API**             | FastAPI + Uvicorn | 0.100+ | Framework ASGI assíncrono para alta performance e baixa latência de inferência. |
+| **Cache & Filas**   | Redis      | 7+     | *Lookup* em sub-milissegundos, TTL nativo e suporte a *streams* para o *feedback loop* e cache de resultados. |
+| **Banco de Dados**  | PostgreSQL | 15+    | Retenção robusta do histórico de conversas e *audit logs* (LGPD) em esquema tipado. |
+| **ML Runtime**      | PyTorch    | 2.2+   | Suporte nativo ao DeBERTa-v3 com aceleração via CUDA/MPS/CPU para treinamento e inferência de modelos de *deep learning*. |
+| **Transformers**    | HuggingFace | 4.x+   | Biblioteca para carregamento e utilização do modelo DeBERTa-v3 e tokenizadores. |
+| **Containerização** | Docker + Docker Compose | Latest | Permite *builds* isolados e multi-stage, garantindo imagens leves e portáveis para produção. |
+| **Observabilidade** | Prometheus + Grafana | Latest | Ferramentas padrão da indústria para rastreamento de latência P99, métricas de modelo e contadores críticos de segurança (e.g., PII leak = 0). |
+| **Processamento de Dados** | Pandas + NumPy | 1.3+ / 1.20+ | Manipulação eficiente de dados e operações numéricas para engenharia de *features* e pré-processamento. |
+
+---
+
+## 📖 Documentação Completa
+
+Para uma compreensão aprofundada dos aspectos técnicos, decisões de design e detalhes de implementação, consulte a documentação complementar:
+
+*   **[AUDITORIA_TECNICA.md](AUDITORIA_TECNICA.md)** — Relatório de auditoria técnica detalhada, incluindo formulações matemáticas, análise de componentes e recomendações de otimização.
+*   **[notebooks/01_eda_lmsys.ipynb](notebooks/01_eda_lmsys.ipynb)** — Notebook de exploração de dados e prototipagem inicial.
+*   **[CLAUDE.md](CLAUDE.md)** — Documentação específica do modelo CLAUDE (se aplicável).
+
+---
+
+## 🎓 Uso em Notebooks
+
+O diretório `notebooks/` contém exemplos práticos de como interagir com os componentes do CHATCIELO. O notebook `01_eda_lmsys.ipynb` demonstra:
+
+*   Carregamento e pré-processamento de dados.
+*   Cálculo de *features* auxiliares.
+*   Exemplos de treinamento e avaliação de modelos.
+*   Visualização de resultados e métricas.
+
+---
+
+## 📝 Licença
+
+Este projeto é licenciado sob a **[MIT License](LICENSE)**. Você é livre para usar, modificar e distribuir, com ou sem fins comerciais, conforme os termos da licença.
+
+---
+
+## 👤 Autoria & Créditos
+
+**Autor Principal:** João Pedro Passos Tocantins
+
+**Contribuições Técnicas:**
+*   Arquitetura e design do pipeline de Machine Learning.
+*   Desenvolvimento do sistema de *Pairwise Preference Ranking*.
+*   Implementação de *features* auxiliares e funções de perda combinadas.
+*   Framework de *backtesting* temporal e validação de modelos.
+*   Auditoria e documentação técnica.
+
+**Referências:**
+*   Kaggle LMSYS Chatbot Arena Competition
+*   Documentação oficial do PyTorch, HuggingFace Transformers e FastAPI.
+*   Artigos de pesquisa sobre *Label Smoothing* e *Margin Ranking Loss*.
+
+---
+
+## 🤝 Contribuindo
+
+Contribuições são bem-vindas! Para reportar bugs, sugerir melhorias ou submeter *pull requests*, por favor, consulte as diretrizes de contribuição (CONTRIBUTING.md, a ser criado) e siga o fluxo padrão do GitHub:
+
+1.  Abra uma [issue](https://github.com/joaopedropassostocantins/CHATCIELO/issues) para discutir a mudança proposta.
+2.  Faça *fork* do repositório e crie um *branch* para sua *feature* ou correção.
+3.  Realize suas modificações e *commit* as alterações com mensagens claras.
+4.  Envie suas alterações (*push*) para o seu *fork*.
+5.  Abra um *Pull Request* para o repositório principal.
+
+---
+
+## 📧 Contato
+
+*   **GitHub:** [@joaopedropassostocantins](https://github.com/joaopedropassostocantins)
+
+---
+
+## 🔗 Links Úteis
+
+*   [Documentação FastAPI](https://fastapi.tiangolo.com/)
+*   [Documentação HuggingFace Transformers](https://huggingface.co/docs/transformers/)
+*   [Documentação PyTorch](https://pytorch.org/docs/stable/index.html)
+
+---
+
+**Última Atualização:** Março de 2026 | **Versão:** 1.0 | **Status:** Produção Pronta ✅
