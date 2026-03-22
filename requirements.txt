@@ -8,6 +8,13 @@ accelerate==0.30.1
 peft==0.11.1
 bitsandbytes==0.43.1
 
+# LLM Serving — vLLM habilita PagedAttention e continuous batching (escala horizontal)
+# Usado em produção (DEPLOY_MODE=api); no Kaggle o script usa HF direto em 4-bit
+vllm==0.4.2
+
+# Dados sintéticos LGPD-safe — substitui fixtures com PII real nos testes
+faker==24.9.0
+
 # Ranking / Evaluation
 scikit-learn==1.4.2
 scipy==1.13.0

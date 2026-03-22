@@ -1,0 +1,260 @@
+# =============================================================================
+# CHATCIELO — Cielo Adaptive Core — Arquitetura de Preferências
+# Modelo: nvidia/Nemotron-3-Nano-30B-A3B-BF16
+# Versão: 1.0.0 | Ambiente: Kaggle T4 x2 + Produção
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# 1. MODELO & INFERÊNCIA
+# ---------------------------------------------------------------------------
+model:
+  name: "nvidia/Nemotron-3-Nano-30B-A3B-BF16"
+  revision: "main"
+  # 4-bit NF4 via bitsandbytes — reduz VRAM de ~60 GB para ~18 GB (T4 x2)
+  quantization:
+    enabled: true
+    bits: 4
+    quant_type: "nf4"           # NormalFloat4 — melhor fidelidade vs INT4
+    double_quant: true          # reduz footprint extra ~0.4 bits/param
+    compute_dtype: "bfloat16"   # compute em BF16 para estabilidade numérica
+
+  # Geração / thinking mode
+  generation:
+    max_new_tokens: 512
+    temperature: 0.7
+    top_p: 0.9
+    do_sample: true
+    # CoT: o modelo pensa entre <think>...</think> antes de responder
+    thinking_prefix: "<think>"
+    thinking_suffix: "</think>"
+    response_prefix: "<resposta>"
+    response_suffix: "</resposta>"
+
+  # vLLM — serving escalável (PagedAttention, continuous batching)
+  # Ativado quando DEPLOY_MODE=api; desativado no Kaggle demo (single script)
+  vllm:
+    enabled: false              # true em produção; false no notebook Kaggle
+    tensor_parallel_size: 2    # 2 GPUs T4
+    gpu_memory_utilization: 0.92
+    max_num_seqs: 32
+    block_size: 16
+
+# ---------------------------------------------------------------------------
+# 2. ROTEAMENTO DE INTENTS — Merchant Support
+# Mapping: intent_detectado → ação_de_suporte
+# Todos os rótulos são sintéticos; nenhum CPF/dado real é usado aqui.
+# ---------------------------------------------------------------------------
+intent_routing:
+  rules:
+    # Financeiro / Taxas
+    - intent: "reclamacao_taxa"
+      action: "antecipacao"
+      priority: 1
+      description: "Lojista reclama de taxa alta → oferecer antecipação de recebíveis"
+      follow_up_template: "Entendo sua preocupação com as taxas. Posso simular uma antecipação para você?"
+
+    - intent: "duvida_taxa_mdr"
+      action: "info_taxa_mdr"
+      priority: 2
+      description: "Dúvida sobre MDR → explicar composição da taxa"
+
+    # Parcelamento
+    - intent: "duvida_parcelamento"
+      action: "info_parcelamento"
+      priority: 2
+      description: "Dúvida sobre parcelamento → explicar regras e prazos"
+
+    - intent: "solicitacao_aumento_parcelamento"
+      action: "avaliacao_credito"
+      priority: 1
+      description: "Solicitar mais parcelas → iniciar avaliação de crédito"
+
+    # Tecnologia / Terminal
+    - intent: "problema_terminal"
+      action: "suporte_tecnico"
+      priority: 1
+      description: "Problema com maquininha → abrir chamado técnico"
+
+    - intent: "solicitacao_novo_terminal"
+      action: "proposta_equipamento"
+      priority: 2
+
+    # Cancelamento / Retenção
+    - intent: "cancelamento"
+      action: "retencao_avancada"
+      priority: 0               # máxima prioridade — retenção crítica
+      description: "Sinal de churn → ativar script de retenção"
+
+    # Default
+    - intent: "outros"
+      action: "atendimento_geral"
+      priority: 3
+
+  # Segmentos de lojistas com limiares de confiança distintos
+  segments:
+    MEI:
+      confidence_threshold: 0.70
+      max_response_tokens: 256
+      tone: "simples_e_direto"
+    VAREJO:
+      confidence_threshold: 0.75
+      max_response_tokens: 384
+      tone: "consultivo"
+    CORPORATE:
+      confidence_threshold: 0.85
+      max_response_tokens: 512
+      tone: "executivo_tecnico"
+      require_human_review: true   # Corporate → revisão humana para respostas críticas
+
+# ---------------------------------------------------------------------------
+# 3. SEGURANÇA & LGPD
+# Todas as regras abaixo são aplicadas ANTES de qualquer dado chegar ao modelo.
+# Implementação: src/data/preprocessing.py → scrub_pii()
+# ---------------------------------------------------------------------------
+security:
+  lgpd:
+    enabled: true
+    data_retention_days: 90
+    consent_required: true
+    anonymization_algorithm: "hmac-sha256"   # salt via env ANONYMIZATION_SALT
+
+  pii_masking:
+    # CPF: 000.000.000-00 ou 00000000000
+    cpf_pattern: '(\d{3}\.?\d{3}\.?\d{3}-?\d{2})'
+    cpf_replacement: "[CPF_REMOVIDO]"
+
+    # Cartões: sequências Luhn-válidas de 13-19 dígitos
+    card_pattern: '(\b(?:\d[ -]?){13,19}\b)'
+    card_replacement: "[CARTAO_REMOVIDO]"
+
+    # E-mail
+    email_pattern: '[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'
+    email_replacement: "[EMAIL_REMOVIDO]"
+
+    # Telefone BR: (xx) xxxxx-xxxx
+    phone_pattern: '(\(?\d{2}\)?\s?\d{4,5}-?\d{4})'
+    phone_replacement: "[TELEFONE_REMOVIDO]"
+
+  # Auditoria: scripts/lgpd_audit.py escaneia logs/ e outputs/
+  audit:
+    enabled: true
+    scan_targets:
+      - "logs/"
+      - "outputs/"
+    block_on_pii_found: true    # exit(1) → bloqueia commit via pre-commit hook
+
+  # Rate limiting (aplicado no middleware FastAPI)
+  rate_limiting:
+    requests_per_minute: 60
+    burst_limit: 10
+    enabled: true
+
+# ---------------------------------------------------------------------------
+# 4. KPIs & MONITORAMENTO — Prometheus
+# Métricas expostas em GET /metrics
+# ---------------------------------------------------------------------------
+monitoring:
+  prometheus:
+    port: 9090
+    enabled: true
+
+  kpis:
+    # Latência (alinhado com CLAUDE.md: P99 < 300ms)
+    latency:
+      p50_target_ms: 100
+      p95_target_ms: 200
+      p99_sla_ms: 300           # violação → alerta + blocklist de PR
+      metric_name: "chatcielo_inference_latency_ms"
+
+    # Qualidade do modelo
+    preference_score:
+      metric_name: "chatcielo_preference_score"
+      expected_min: 0.0
+      expected_max: 1.0
+      alert_if_out_of_range: true
+
+    # Throughput
+    throughput:
+      metric_name: "chatcielo_requests_total"
+      labels: ["intent", "segment", "status"]
+
+    # Drift de dados — PSI (Population Stability Index)
+    drift:
+      metric_name: "chatcielo_psi_score"
+      psi_threshold: 0.2        # > 0.2 → alerta de drift → iniciar re-treino
+      alert_channel: "prometheus_alertmanager"
+
+    # Cache Redis
+    cache:
+      hit_metric: "chatcielo_cache_hits_total"
+      miss_metric: "chatcielo_cache_misses_total"
+      ttl_seconds: 3600
+
+    # LGPD / Segurança
+    pii_events:
+      metric_name: "chatcielo_pii_scrubbed_total"
+      labels: ["pii_type"]      # cpf, card, email, phone
+
+  # Alertas
+  alerts:
+    p99_breach:
+      condition: "chatcielo_inference_latency_ms{quantile='0.99'} > 300"
+      severity: "critical"
+      action: "page_oncall"
+
+    psi_drift:
+      condition: "chatcielo_psi_score > 0.2"
+      severity: "warning"
+      action: "trigger_retrain_pipeline"
+
+    pii_leak:
+      condition: "chatcielo_pii_scrubbed_total{pii_type='cpf'} > 0"
+      severity: "critical"
+      action: "block_and_audit"
+
+# ---------------------------------------------------------------------------
+# 5. PIPELINE DE TREINO (referência para train.py)
+# ---------------------------------------------------------------------------
+training:
+  base_model: "microsoft/deberta-v3-large"   # modelo base de preferências (existente)
+  nemotron_teacher: "nvidia/Nemotron-3-Nano-30B-A3B-BF16"  # teacher p/ knowledge distillation
+  loss:
+    cls_weight: 0.7
+    ranking_weight: 0.3
+    label_smoothing: 0.1
+  optimizer:
+    type: "adamw"
+    lr: 2.0e-5
+    weight_decay: 0.01
+  scheduler:
+    type: "cosine_with_restarts"
+    warmup_ratio: 0.06
+  early_stopping:
+    patience: 2
+    metric: "val_auc"
+    mode: "max"
+  checkpointing:
+    save_top_k: 2
+    monitor: "val_auc"
+
+# ---------------------------------------------------------------------------
+# 6. DADOS & VALIDAÇÃO
+# ---------------------------------------------------------------------------
+data:
+  # Datasets públicos usados no demo Kaggle (sem PII real)
+  public_benchmarks:
+    - name: "banking77"
+      hf_path: "PolyAI/banking77"
+      task: "intent_classification"
+    - name: "fiqa"
+      hf_path: "BeIR/fiqa"
+      task: "financial_qa"
+    - name: "cielo_synthetic"
+      source: "faker_generated"   # Faker — sem PII real
+      num_samples: 1000
+
+  validation:
+    min_auc: 0.80
+    min_accuracy: 0.75
+    max_ece: 0.05               # Expected Calibration Error
+    pii_scan_before_training: true
